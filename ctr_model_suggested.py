@@ -191,3 +191,71 @@ test_df_pg  = pd.DataFrame(test_metrics_pg, index=['test_promoted'])
 cv_mean_df  = cv_df.mean().to_frame(name='cv_mean').T
 
 print(pd.concat([cv_mean_df, test_df_pg], axis=0))
+
+from xgboost import XGBClassifier
+
+# instantiate a single‐tree model
+one_tree = XGBClassifier(
+    n_estimators=1,        # just one tree
+    max_depth=8,           # reasonably deep
+    learning_rate=1.0,     # full step
+    subsample=1.0,
+    colsample_bytree=1.0,
+    use_label_encoder=False,
+    eval_metric='auc',
+    tree_method='hist'
+)
+
+# train on all the training data
+x_tr2, x_val2, y_tr2, y_val2 = train_test_split(
+    x_train_full_d, y_train_full,
+    test_size=0.2,
+    stratify=y_train_full,
+    random_state=13
+)
+
+pos = (y_train_full == 1).sum()
+neg = (y_train_full == 0).sum()
+balanced_w = neg / pos
+
+model2 = xgb.XGBClassifier(
+    n_estimators=5000,
+    learning_rate=0.03,
+
+    max_depth=6,
+    min_child_weight=20,
+
+    subsample=0.7,
+    colsample_bytree=0.7,
+    colsample_bynode=0.8,
+
+    reg_lambda=200,
+    reg_alpha=20,
+    gamma=10,
+
+    use_label_encoder=False,
+    eval_metric='auc',
+    tree_method='hist',
+    scale_pos_weight= balanced_w,
+)
+
+
+model2.fit(
+    x_tr2, y_tr2,
+    eval_set=[(x_tr2, y_tr2), (x_val2, y_val2)],
+    verbose=10
+)
+
+test_prob2 = model2.predict_proba(x_eval_pg)[:, 1]
+test_pred2 = (test_prob2 > 0.5).astype(int)
+
+metrics2 = {
+    'accuracy':          metrics.accuracy_score(y_test_pg, test_pred2),
+    'balanced_accuracy': metrics.balanced_accuracy_score(y_test_pg, test_pred2),
+    'f1':                metrics.f1_score(y_test_pg, test_pred2),
+    'auc_roc':           metrics.roc_auc_score(y_test_pg, test_prob2),
+}
+
+print("new tree model on promoted_gig:")
+for name, val in metrics2.items():
+    print(f"  {name}: {val:.4f}")
